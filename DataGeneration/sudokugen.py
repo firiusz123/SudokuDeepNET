@@ -92,16 +92,15 @@ class SudokuGenerator:
 	def change_to_one_hot(self, data):
 		device = 'cuda' if torch.cuda.is_available() else 'cpu'
 		n_samples = data.shape[0]
-		one_hot_data = torch.zeros(n_samples, 9, 9, 10, device=device)
 
-		for n in range(n_samples):
-			values = data[n].to(torch.long)
-			for i in range(9):
-				for j in range(9):
-					v = values[i][j]
-					if v > 0:
-						one_hot_data[n][i][j][v] = 1
-		return one_hot_data.cpu()
+		data = data.to(device,dtype =torch.int64)
+		one_hot_data = torch.zeros(n_samples, 9, 9, 10,dtype = torch.float32 , device =device)
+		one_hot_data.scatter_(3,data.unsqueeze(-1),1)
+		one_hot_data[:,:,:,0] = 0
+		
+		return one_hot_data
+
+		
 
 	def save_dataset(self, puzzles, solutions, hole_counts, ids, path='sudoku_dataset.pt', one_hot=False):
 		os.makedirs(os.path.dirname(path), exist_ok=True)

@@ -2,3 +2,5 @@ sudoku_dataset_own_1M/
 SudokuData/
 DataGeneration/data
 sudoenv/
+runs/
+model/runs/

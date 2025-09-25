@@ -3,6 +3,8 @@ SudokuData/
 DataGeneration/data
 DataGeneration/
 sudoenv/
+suenv/
 sudokuenv/
 runs/
 data2/
+*/__pycache__

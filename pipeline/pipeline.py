@@ -24,7 +24,7 @@ import io
 from torch.utils.data import TensorDataset, DataLoader
 import torch.nn.functional as F
 from tqdm import tqdm  # Regular tqdm, not tqdm.auto
-
+import os
 
 
 
@@ -46,10 +46,7 @@ class ModelFit():
     def get_model(self,learning_rate , load_path = None ,loss_func = nn.CrossEntropyLoss(), device = 'cpu' , optim = None , model = None):
 
 
-        if device == 'cpu':
-            self.device=torch.device('cpu')
-        else:
-             self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu' )
+        self.device = torch.device('cuda' if torch.cuda.is_available() and device != 'cpu' else 'cpu')
         if model:
             self.model = model
         if  self.model is None:
@@ -61,9 +58,9 @@ class ModelFit():
       
 
         if optim:
-            optimizer = optim
+            self.optimizer = optim
         elif  not optim:
-            optimizer  = torch.optim.Adam(self.model.parameters(), lr=learning_rate)
+            self.optimizer  = torch.optim.Adam(self.model.parameters(), lr=learning_rate)
 
 
         self.model_name = self.model.__class__.__name__
@@ -75,13 +72,16 @@ class ModelFit():
             
             
 
-        return self.model , optimizer , loss_func
+        return self.model , self.optimizer , loss_func
 
 
 
     def loss_batch(self,model, loss_func, xb, yb, opt=None):
-        xb, yb = xb.to(self.device), yb.to(self.device)
+        xb, yb = xb.to(self.device , non_blocking = True), yb.to(self.device, non_blocking = True)
         preds = model(xb)
+        preds = preds.permute(0, 2, 3, 1)
+        preds = preds.reshape(-1,9)
+        yb=(yb - 1).reshape(-1)
         loss = loss_func(preds, yb)
 
         if opt is not None:
@@ -93,12 +93,12 @@ class ModelFit():
     
     
     
-    def train_loss_over_batches(self,training_data,current_epoch,epoches,loss_func,opt,writer):
+    def train_loss_over_batches(self,training_data,current_epoch,epoches,loss_func,opt):
         total_loss = 0
         count = 0
         self.model.train()
 
-        progress_bar = tqdm(training_data, desc=f"Epoch {current_epoch+1}/{epoches}", leave=False)
+        progress_bar = tqdm(training_data, desc=f"Epoch {current_epoch+1}/{epoches}", leave=True)
         
         for xb, yb in progress_bar:
             xb, yb = xb.to(self.device), yb.to(self.device)
@@ -107,26 +107,27 @@ class ModelFit():
             count += batch_size
             progress_bar.set_postfix(train_loss=total_loss / count)
             train_loss = total_loss / count
-            writer.add_scalar('Loss/train', train_loss, count)
+            self.writer.add_scalar('Loss/train', train_loss, count)
+        progress_bar.close()
         
         if self.scheduler is not None:
             self.scheduler.step()
         return train_loss
 
-    def valid_loss_over_batches(self,validation_data,current_epoch,epoches,loss_func,writer ):
+    def valid_loss_over_batches(self,validation_data,current_epoch,epoches,loss_func ):
         self.model.eval()
         val_losses = []
         val_nums = []
 
         with torch.no_grad():
             for xb, yb in validation_data:
-                xb, yb = xb.to(self.device), yb.to(self.device)
+                xb, yb = xb.to(self.device, non_blocking = True), yb.to(self.device, non_blocking = True)
                 loss, batch_size = self.loss_batch(self.model, loss_func, xb, yb)
                 val_losses.append(loss)
                 val_nums.append(batch_size)
 
         val_loss = np.sum(np.multiply(val_losses, val_nums)) / np.sum(val_nums)
-        writer.add_scalar('Loss/val', val_loss, current_epoch)
+        self.writer.add_scalar('Loss/val', val_loss, current_epoch)
 
         return val_loss
     
@@ -138,8 +139,7 @@ class ModelFit():
                         validation_data , 
                         weight_unfreeze_epoch,
                         scheduler_step_size , 
-                        scheduler_gamma ,
-                          writer):
+                        scheduler_gamma):
         
         self.model.to(self.device)
         self.scheduler = lr_scheduler.StepLR(optimalizator, step_size=scheduler_step_size, gamma=scheduler_gamma )  
@@ -155,17 +155,29 @@ class ModelFit():
                                          current_epoch=epoch,
                                          epoches=epoches,
                                          loss_func=loss_func,
-                                         opt = optimalizator,
-                                         writer = writer)
-            self.valid_loss_over_batches(epoches = epoches , current_epoch= epoch , validation_data= validation_data , loss_func=loss_func , writer = writer)
+                                         opt = optimalizator)
+            self.valid_loss_over_batches(epoches = epoches , current_epoch= epoch , validation_data= validation_data , loss_func=loss_func )
+        self.save_model()
         return self.model
 
+    def save_model(self,filename="model.pt"):
+        if self.model is None:
+            raise ValueError("no model to save.")
+        
+        os.makedirs(self.log_dir, exist_ok=True)
+        path = os.path.join(self.log_dir, filename)
+
+        checkpoint = {
+        'model_state_dict': self.model.state_dict(),
+        'optimizer_state_dict': getattr(self, 'optimizer', None).state_dict() if hasattr(self, 'optimizer') else None
+        }
+        torch.save(checkpoint, path)
+        print(f"Model saved: {path}")
+    
     def model_testing(self,
-                      
                       test_loader,
                       loss_func,
-                      class_names=None,
-                      writer = None):
+                      class_names=None):
         self.model.eval()
         self.model.to(self.device)
 
@@ -175,9 +187,9 @@ class ModelFit():
 
         all_preds = []
         all_labels = []
-
+        progress_bar = tqdm(test_loader, desc="Testing", leave=False)
         with torch.no_grad():
-            for xb, yb in tqdm(test_loader, desc="Testing", leave=False):
+            for xb, yb in progress_bar:
                 xb, yb = xb.to(self.device), yb.to(self.device)
                 outputs = self.model(xb)
                 loss = loss_func(outputs, yb)
@@ -190,6 +202,7 @@ class ModelFit():
 
                 all_preds.extend(predicted.cpu().numpy())
                 all_labels.extend(yb.cpu().numpy())
+        progress_bar.close()
 
         avg_loss = total_loss / total_samples
         accuracy = total_correct / total_samples
@@ -199,7 +212,7 @@ class ModelFit():
 
         # Confusion Matrix
         cm = confusion_matrix(all_labels, all_preds)
-        plt.figure(figsize=(10, 8))
+        fig, ax = plt.figure(figsize=(10, 8))
         sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
                     xticklabels=class_names if class_names else range(cm.shape[1]),
                     yticklabels=class_names if class_names else range(cm.shape[0]))
@@ -207,104 +220,22 @@ class ModelFit():
         plt.ylabel("True Label")
         plt.title(f"Confusion Matrix\nLoss: {avg_loss:.4f}, Accuracy: {accuracy * 100:.2f}%")
         plt.tight_layout()
-        
-        if writer:
+        """
+        if self.writer:
             buf = io.BytesIO()
             plt.savefig(buf, format='png')
             buf.seek(0)
+            self.writer.add_figure("Confusion Matrix", buf, global_step=1)
             image = Image.open(buf)
             image = transforms.ToTensor()(image)
-            writer.add_image("Confusion_Matrix", image ,1)
+            self.writer.add_image("Confusion_Matrix", image ,1)
+        plt.show()
+        """
+        if self.writer:
+            self.writer.add_figure("Confusion Matrix", fig, global_step=1)
+
         plt.show()
 
+
+
         return avg_loss, accuracy, cm
-
-        
-
-
-
-    def fit(self,epoches,loss_function,optimalizator,training_data,validation_data,weightt_unfreeze_epoch,writer):
-        pass
-    
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-class SimpleSudokuCNN(nn.Module):
-        def __init__(self):
-            super(SimpleSudokuCNN, self).__init__()
-            # wejście: (batch, 10, 9, 9)
-            self.conv1 = nn.Conv2d(10, 32, kernel_size=3, padding=1)  # (batch, 32, 9, 9)
-            self.conv2 = nn.Conv2d(32, 64, kernel_size=3, padding=1)  # (batch, 64, 9, 9)
-            self.conv3 = nn.Conv2d(64, 128, kernel_size=3, padding=1) # (batch, 128, 9, 9)
-            
-            self.dropout = nn.Dropout(0.3)
-            
-            # ostatnia warstwa konwolucyjna zmienia liczbę kanałów na 9 (klasy od 0 do 8)
-            self.conv_out = nn.Conv2d(128, 9, kernel_size=1)           # (batch, 9, 9, 9)
-            
-        def forward(self, x):
-            x = F.relu(self.conv1(x))
-            x = F.relu(self.conv2(x))
-            x = F.relu(self.conv3(x))
-            x = self.dropout(x)
-            x = self.conv_out(x)  # logits dla każdej klasy na każdej pozycji
-            # output shape: (batch, 9, 9, 9)
-            # Jeśli potrzebujesz (batch, 9, 9, 9), permutuj: x.permute(0, 2, 3, 1)
-            return x
-
-
-
-
-
-# losowe dane: batch 100, 10 kanałów, 9x9 sudoku one-hot
-x_dummy = torch.randn(100, 10, 9, 9)
-# losowe etykiety: batch 100, 9x9, klasa od 0 do 8
-y_dummy = torch.randint(0, 9, (100, 9, 9))
-
-dataset = TensorDataset(x_dummy, y_dummy)
-train_loader = DataLoader(dataset, batch_size=16, shuffle=True)
-val_loader = DataLoader(dataset, batch_size=16)
-
-
-
-train_dataset = TensorDataset(x_dummy, y_dummy)
-train_loader = DataLoader(train_dataset, batch_size=64, shuffle=True)
-val_loader = DataLoader(train_dataset, batch_size=64)  # użyj tego samego jako walidacji
-
-# Model i trenowanie
-# Define model first
-model = SimpleSudokuCNN()
-
-# Create trainer and get components
-trainer = ModelFit()
-model, optimizer, loss_func = trainer.get_model(
-    learning_rate=1e-3, 
-    model=model
-)
-
-# Train (using the returned optimizer and loss_func)
-trainer.model_training(
-    epoches=10,
-    loss_func=loss_func,
-    optimalizator=optimizer,  # Use the one returned by get_model
-    training_data=train_loader,
-    validation_data=val_loader,
-    weight_unfreeze_epoch=None,
-    scheduler_step_size=5,
-    scheduler_gamma=0.5,
-    writer=trainer.writer
-)
-

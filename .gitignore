@@ -1,6 +1,8 @@
 sudoku_dataset_own_1M/
 SudokuData/
 DataGeneration/data
+DataGeneration/
 sudoenv/
+sudokuenv/
 runs/
 data2/

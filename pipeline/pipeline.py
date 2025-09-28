@@ -25,6 +25,7 @@ from torch.utils.data import TensorDataset, DataLoader
 import torch.nn.functional as F
 from tqdm import tqdm  # Regular tqdm, not tqdm.auto
 import os
+from sklearn import metrics
 
 
 
@@ -81,7 +82,7 @@ class ModelFit():
         preds = model(xb)
         preds = preds.permute(0, 2, 3, 1)
         preds = preds.reshape(-1,9)
-        yb=(yb - 1).reshape(-1)
+        yb=(yb).reshape(-1)
         loss = loss_func(preds, yb)
 
         if opt is not None:
@@ -190,6 +191,7 @@ class ModelFit():
         progress_bar = tqdm(test_loader, desc="Testing", leave=False)
         with torch.no_grad():
             for xb, yb in progress_bar:
+                
                 xb, yb = xb.to(self.device), yb.to(self.device)
                 outputs = self.model(xb)
                 loss = loss_func(outputs, yb)
@@ -211,15 +213,11 @@ class ModelFit():
         print(f"Test Accuracy: {accuracy * 100:.2f}%")
 
         # Confusion Matrix
-        cm = confusion_matrix(all_labels, all_preds)
-        fig, ax = plt.figure(figsize=(10, 8))
-        sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
-                    xticklabels=class_names if class_names else range(cm.shape[1]),
-                    yticklabels=class_names if class_names else range(cm.shape[0]))
-        plt.xlabel("Predicted Label")
-        plt.ylabel("True Label")
-        plt.title(f"Confusion Matrix\nLoss: {avg_loss:.4f}, Accuracy: {accuracy * 100:.2f}%")
-        plt.tight_layout()
+        confusion_matrix = metrics.confusion_matrix(all_preds, all_labels)
+        cm_display = metrics.ConfusionMatrixDisplay(confusion_matrix = confusion_matrix, display_labels = [0, 1])
+        cm_display.plot()
+        plt.show()
+        
         """
         if self.writer:
             buf = io.BytesIO()
@@ -232,10 +230,10 @@ class ModelFit():
         plt.show()
         """
         if self.writer:
-            self.writer.add_figure("Confusion Matrix", fig, global_step=1)
+            self.writer.add_figure("Confusion Matrix", cm_display, global_step=1)
 
         plt.show()
 
 
 
-        return avg_loss, accuracy, cm
+        return avg_loss, accuracy, cm_display

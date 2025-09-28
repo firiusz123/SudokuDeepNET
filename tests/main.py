@@ -41,7 +41,7 @@ def main():
 
         # Train (using the returned optimizer and loss_func)
         trainer.model_training(
-            epoches=1,
+            epoches=2,
             loss_func=loss_func,
             optimalizator=optimizer,  # Use the one returned by get_model
             training_data=train_loader,
@@ -49,6 +49,8 @@ def main():
             weight_unfreeze_epoch=None,
             scheduler_step_size=5,
             scheduler_gamma=0.5)
+        
+        trainer.model_testing()
         
 if __name__ == '__main__':
         main()

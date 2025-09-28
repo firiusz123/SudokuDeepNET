@@ -21,10 +21,8 @@ class SudokuDataset(Dataset):
 
     def __getitem__(self, idx):
         x = self.puzzles[idx]     
-        y = self.solutions[idx]   
-
-        # Zamiana wymiarów: (9, 9, 10) → (10, 9, 9)
+        y = self.solutions[idx] - 1   
         x = x.unsqueeze(0).float()
-        y = y.unsqueeze(0).long()
+        y = y.long() 
 
         return x, y

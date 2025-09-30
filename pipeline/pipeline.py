@@ -70,7 +70,8 @@ class ModelFit():
 
 
         if load_path:
-            self.model.load_state_dict(torch.load(load_path, map_location=self.device))
+            checkpoint = torch.load(load_path, map_location=self.device)
+            self.model.load_state_dict(checkpoint["model_state_dict"])
       
 
         if optim:
@@ -210,21 +211,33 @@ class ModelFit():
             for xb, yb in progress_bar:
                 
                 xb, yb = xb.to(self.device), yb.to(self.device)
+
                 outputs = self.model(xb)
                 loss = loss_func(outputs, yb)
 
                 total_loss += loss.item() * xb.size(0)
 
+                yb_flat = yb.view(-1)
                 _, predicted = torch.max(outputs, 1)
-                total_correct += (predicted == yb).sum().item()
-                total_samples += yb.numel()
+                predicted_flat = predicted.view(-1)
+                self.logs.info(f"shape of yb_flat {yb_flat.shape}")
+                self.logs.info(f"shape of predicted {predicted.shape}")
+                self.logs.info(f"shape of predicted {predicted_flat.shape}")
 
-                mask = (xb == 0)
-                masked_correct = (predicted[mask] == yb[mask]).sum().item()
+                total_correct += (predicted_flat == yb_flat).sum().item()
+                total_samples += yb_flat.numel()
+
+                # ----- Masked accuracy -----
+                mask = (xb.view(-1) == 0)   # flatten input to same shape
+
+               
+
+                masked_correct += (predicted_flat[mask] == yb_flat[mask]).sum().item()
                 masked_total += mask.sum().item()
 
+                # Save for confusion matrix
                 all_preds = torch.cat((all_preds, predicted), dim=0)
-                all_labels = torch.cat((all_labels, yb), dim=0)
+                all_labels = torch.cat((all_labels, yb_flat), dim=0)
 
         progress_bar.close()
 

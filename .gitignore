@@ -8,3 +8,4 @@ sudokuenv/
 runs/
 data2/
 */__pycache__
+logs/*

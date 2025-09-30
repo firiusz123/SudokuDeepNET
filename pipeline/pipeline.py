@@ -26,6 +26,8 @@ import torch.nn.functional as F
 from tqdm import tqdm  # Regular tqdm, not tqdm.auto
 import os
 from sklearn import metrics
+import logging
+
 
 
 
@@ -39,6 +41,19 @@ class ModelFit():
         self.device = None
         self.writer = None
         self.scheduler = None  # Add this
+        
+        
+        
+        log_path="logs/train.log"
+        os.makedirs(os.path.dirname(log_path), exist_ok=True)
+        logging.basicConfig(
+            filename=log_path,   # File where logs go
+            filemode="a",              # "a" = append, "w" = overwrite
+            format="%(asctime)s - %(levelname)s - %(message)s",
+            level=logging.INFO  )
+    # Create logger
+        self.logs = logging.getLogger("sudoku_trainer")
+        self.logs.info("Logging initialized")
 
         # Create writer
         
@@ -185,9 +200,11 @@ class ModelFit():
         total_correct = 0
         total_samples = 0
         total_loss = 0
+        masked_correct = 0
+        masked_total = 0
+        all_preds = torch.tensor([], dtype=torch.long, device=self.device)
+        all_labels = torch.tensor([], dtype=torch.long, device=self.device)
 
-        all_preds = []
-        all_labels = []
         progress_bar = tqdm(test_loader, desc="Testing", leave=False)
         with torch.no_grad():
             for xb, yb in progress_bar:
@@ -200,39 +217,47 @@ class ModelFit():
 
                 _, predicted = torch.max(outputs, 1)
                 total_correct += (predicted == yb).sum().item()
-                total_samples += xb.size(0)
+                total_samples += yb.numel()
 
-                all_preds.extend(predicted.cpu().numpy())
-                all_labels.extend(yb.cpu().numpy())
+                mask = (xb == 0)
+                masked_correct = (predicted[mask] == yb[mask]).sum().item()
+                masked_total += mask.sum().item()
+
+                all_preds = torch.cat((all_preds, predicted), dim=0)
+                all_labels = torch.cat((all_labels, yb), dim=0)
+
         progress_bar.close()
 
         avg_loss = total_loss / total_samples
         accuracy = total_correct / total_samples
+        overall_acc = 100.0 * total_correct / total_samples
+        masked_acc = 100.0 * masked_correct / masked_total
+
+        print(f"Test Loss: {total_loss/len(test_loader.dataset):.4f}")
+        print(f"Overall Accuracy: {overall_acc:.2f}%")
+        print(f"Masked Accuracy (empty cells only): {masked_acc:.2f}%")
 
         print(f"\nTest Loss: {avg_loss:.4f}")
         print(f"Test Accuracy: {accuracy * 100:.2f}%")
 
         # Confusion Matrix
-        confusion_matrix = metrics.confusion_matrix(all_preds, all_labels)
-        cm_display = metrics.ConfusionMatrixDisplay(confusion_matrix = confusion_matrix, display_labels = [0, 1])
-        cm_display.plot()
-        plt.show()
-        
-        """
-        if self.writer:
-            buf = io.BytesIO()
-            plt.savefig(buf, format='png')
-            buf.seek(0)
-            self.writer.add_figure("Confusion Matrix", buf, global_step=1)
-            image = Image.open(buf)
-            image = transforms.ToTensor()(image)
-            self.writer.add_image("Confusion_Matrix", image ,1)
-        plt.show()
-        """
-        if self.writer:
-            self.writer.add_figure("Confusion Matrix", cm_display, global_step=1)
+        self.logs.info(f"shape of all_preds {all_preds.shape}")
+        self.logs.info(f"shape of all_labels {all_labels.shape}")
 
-        plt.show()
+        all_preds_flat = all_preds.view(-1).cpu().numpy()
+        all_labels_flat = all_labels.view(-1).cpu().numpy()
+
+        self.logs.info(f"shape of all_preds_flat {all_preds_flat.shape}")
+        self.logs.info(f"shape of all_labels_flat {all_labels_flat.shape}")
+
+        confusion_matrix = metrics.confusion_matrix(all_preds_flat, all_labels_flat)
+        cm_display = metrics.ConfusionMatrixDisplay(confusion_matrix = confusion_matrix)
+        fig, ax = plt.subplots(figsize=(10, 8))
+        cm_display.plot(ax=ax)
+        
+        if self.writer:
+            self.writer.add_figure("Confusion Matrix", fig, global_step=1)
+
 
 
 

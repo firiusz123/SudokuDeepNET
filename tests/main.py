@@ -41,7 +41,7 @@ def main():
 
         # Train (using the returned optimizer and loss_func)
         trainer.model_training(
-            epoches=2,
+            epoches=1,
             loss_func=loss_func,
             optimalizator=optimizer,  # Use the one returned by get_model
             training_data=train_loader,
@@ -50,7 +50,7 @@ def main():
             scheduler_step_size=5,
             scheduler_gamma=0.5)
         
-        trainer.model_testing()
+        trainer.model_testing(test_loader,loss_func,class_names=9)
         
 if __name__ == '__main__':
         main()

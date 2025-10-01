@@ -9,7 +9,7 @@ from pipeline import ModelFit
 
 def main():
 
-        full_dataset = SudokuDataset("DataGeneration/data/data2.pt")
+        full_dataset = SudokuDataset("DataGeneration/data2/newdata.pt")
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu' )
         print(f"Using device: {device}")
         model = SudokuNet().to(device)
@@ -36,7 +36,7 @@ def main():
         trainer = ModelFit()
         model, optimizer, loss_func = trainer.get_model(
             learning_rate=1e-3, 
-            model=model,load_path="runs/real_data/SudokuNet_20_04_S-30-04-2025/model.pt"
+            model=model,load_path="runs/real_data/SudokuNet_13_46_S-01-46-2025/model.pt"
         )
         # Train (using the returned optimizer and loss_func)
         

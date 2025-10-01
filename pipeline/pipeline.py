@@ -174,6 +174,7 @@ class ModelFit():
                                          loss_func=loss_func,
                                          opt = optimalizator)
             self.valid_loss_over_batches(epoches = epoches , current_epoch= epoch , validation_data= validation_data , loss_func=loss_func )
+            self.scheduler.step()
         self.save_model()
         return self.model
 
@@ -205,6 +206,8 @@ class ModelFit():
         masked_total = 0
         all_preds = torch.tensor([], dtype=torch.long, device=self.device)
         all_labels = torch.tensor([], dtype=torch.long, device=self.device)
+        all_preds_masked = torch.tensor([], dtype=torch.long, device=self.device)
+        all_labels_masked = torch.tensor([], dtype=torch.long, device=self.device)
 
         progress_bar = tqdm(test_loader, desc="Testing", leave=False)
         with torch.no_grad():
@@ -220,9 +223,9 @@ class ModelFit():
                 yb_flat = yb.view(-1)
                 _, predicted = torch.max(outputs, 1)
                 predicted_flat = predicted.view(-1)
-                self.logs.info(f"shape of yb_flat {yb_flat.shape}")
-                self.logs.info(f"shape of predicted {predicted.shape}")
-                self.logs.info(f"shape of predicted {predicted_flat.shape}")
+                #self.logs.info(f"shape of yb_flat {yb_flat.shape}")
+                #self.logs.info(f"shape of predicted {predicted.shape}")
+                #self.logs.info(f"shape of predicted {predicted_flat.shape}")
 
                 total_correct += (predicted_flat == yb_flat).sum().item()
                 total_samples += yb_flat.numel()
@@ -238,8 +241,12 @@ class ModelFit():
                 # Save for confusion matrix
                 all_preds = torch.cat((all_preds, predicted), dim=0)
                 all_labels = torch.cat((all_labels, yb_flat), dim=0)
+                
+                all_preds_masked = torch.cat((all_preds_masked, predicted_flat[mask]), dim=0)
+                all_labels_masked = torch.cat((all_labels_masked, yb_flat[mask]), dim=0)
 
         progress_bar.close()
+
 
         avg_loss = total_loss / total_samples
         accuracy = total_correct / total_samples
@@ -269,9 +276,20 @@ class ModelFit():
         cm_display.plot(ax=ax)
         
         if self.writer:
-            self.writer.add_figure("Confusion Matrix", fig, global_step=1)
+            self.writer.add_figure("Confusion Matrix of entire cell", fig, global_step=1)
 
 
+        all_preds_flat_masked = all_preds_masked.view(-1).cpu().numpy()
+        all_labels_flat_masked = all_labels_masked.view(-1).cpu().numpy()
+
+        
+        confusion_matrix = metrics.confusion_matrix(all_preds_flat_masked, all_labels_flat_masked)
+        cm_display = metrics.ConfusionMatrixDisplay(confusion_matrix = confusion_matrix)
+        fig, ax = plt.subplots(figsize=(10, 8))
+        cm_display.plot(ax=ax)
+
+        if self.writer:
+            self.writer.add_figure("Confusion Matrix of unknown cells", fig, global_step=1)
 
 
         return avg_loss, accuracy, cm_display

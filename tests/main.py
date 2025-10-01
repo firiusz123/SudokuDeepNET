@@ -9,7 +9,7 @@ from pipeline import ModelFit
 
 def main():
 
-        full_dataset = SudokuDataset("DataGeneration/data/data2.pt")
+        full_dataset = SudokuDataset("DataGeneration/data2/newdata.pt")
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu' )
         print(f"Using device: {device}")
         model = SudokuNet().to(device)
@@ -22,10 +22,13 @@ def main():
         train_ds, val_ds, test_ds = random_split(full_dataset, [train_size, val_size, test_size])
         workers_num =5
         # Loaders
-        pin_memory_state = False
-        train_loader = DataLoader(train_ds, batch_size=128, shuffle=True,pin_memory=pin_memory_state, num_workers=workers_num)
-        val_loader   = DataLoader(val_ds, batch_size=256, shuffle=False,pin_memory=pin_memory_state, num_workers=workers_num)
-        test_loader  = DataLoader(test_ds, batch_size=128, shuffle=False,pin_memory=pin_memory_state, num_workers=workers_num)
+        pin_memory_state = True
+
+        size = int(2^8)
+
+        train_loader = DataLoader(train_ds, batch_size=size, shuffle=True,pin_memory=pin_memory_state, num_workers=workers_num)
+        val_loader   = DataLoader(val_ds, batch_size=2 * size, shuffle=False,pin_memory=pin_memory_state, num_workers=workers_num)
+        test_loader  = DataLoader(test_ds, batch_size=size, shuffle=False,pin_memory=pin_memory_state, num_workers=workers_num)
 
 
 
@@ -41,13 +44,13 @@ def main():
 
         # Train (using the returned optimizer and loss_func)
         trainer.model_training(
-            epoches=1,
+            epoches=2+1,
             loss_func=loss_func,
             optimalizator=optimizer,  # Use the one returned by get_model
             training_data=train_loader,
             validation_data=val_loader,
             weight_unfreeze_epoch=None,
-            scheduler_step_size=5,
+            scheduler_step_size=1,
             scheduler_gamma=0.5)
         
         trainer.model_testing(test_loader,loss_func,class_names=9)
